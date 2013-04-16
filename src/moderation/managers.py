@@ -1,6 +1,6 @@
+from django.db.models import Q
 from django.db.models.manager import Manager
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ObjectDoesNotExist
 
 
 class MetaClass(type):
@@ -17,38 +17,21 @@ class ModerationObjectsManager(Manager):
                 {'use_for_related_fields': True})
 
     def filter_moderated_objects(self, query_set):
-        from moderation.models import MODERATION_STATUS_PENDING,\
-            MODERATION_STATUS_REJECTED
+        """
+        Filter the given queryset so that it only contains approved objects
+        or objects that do not need to be moderated.
+        """
+        from .models import (MODERATION_STATUS_REJECTED,
+                             MODERATION_STATUS_PENDING, ModeratedObject)
 
-        exclude_pks = []
-
-        from models import ModeratedObject
-
-        # TODO: Load this query in chunks to avoid huge RAM usage spikes
-        mobjects = dict([(mobject.object_pk, mobject)\
-        for mobject in ModeratedObject.objects.filter(
+        unapproved_object_pks = ModeratedObject.objects.filter(
+            Q(moderation_status__in=[
+                MODERATION_STATUS_PENDING,
+                MODERATION_STATUS_REJECTED,
+            ]),
             content_type=ContentType.objects.get_for_model(query_set.model),
-            object_pk__in=query_set.values_list('pk', flat=True))])
-
-        full_query_set = super(ModerationObjectsManager, self).get_query_set()\
-        .filter(pk__in=query_set.values_list('pk', flat=True))
-
-        for obj in full_query_set:
-            try:
-                # We cannot use dict.get() here!
-                mobject = mobjects[obj.pk] if obj.pk in mobjects\
-                else obj.moderated_object
-                obj_changed = mobject.has_object_been_changed(obj, None)
-
-                if mobject.moderation_status\
-                   in [MODERATION_STATUS_PENDING,
-                       MODERATION_STATUS_REJECTED]\
-                and not obj_changed:
-                    exclude_pks.append(obj.pk)
-            except ObjectDoesNotExist:
-                pass
-
-        return query_set.exclude(pk__in=exclude_pks)
+        ).values_list('object_pk', flat=True)
+        return query_set.exclude(pk__in=unapproved_object_pks)
 
     def exclude_objs_by_visibility_col(self, query_set):
         from moderation.models import MODERATION_STATUS_REJECTED
