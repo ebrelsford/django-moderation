@@ -209,8 +209,11 @@ class ModerationManager(with_metaclass(ModerationManagerSingleton, object)):
             moderated_obj.save()
             moderator.inform_moderator(instance)
         else:
-            moderated_obj = ModeratedObject.objects.\
-                get_for_instance(instance)
+            try:
+                moderated_obj = ModeratedObject.objects.\
+                    get_for_instance(instance)
+            except ModeratedObject.DoesNotExist:
+                return
 
             if moderated_obj.moderation_status == \
                MODERATION_STATUS_APPROVED and \
